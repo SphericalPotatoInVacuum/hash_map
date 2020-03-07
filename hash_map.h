@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <list>
@@ -11,17 +12,18 @@ class HashMap {
       typename std::list<std::pair<const KeyType, ValueType>>::iterator;
   using const_iterator =
       typename std::list<std::pair<const KeyType, ValueType>>::const_iterator;
+  using list_iterator = typename std::list<iterator>::iterator;
 
   explicit HashMap(Hash hash = Hash()) : hash_function_(hash) {
-    data_.resize(16);
-    dsize = 16;
+    data_.resize(kMinSize);
+    dsize_ = kMinSize;
   }
 
   template <class T>
-  HashMap(T begin_, T end_, Hash hash = Hash()) : hash_function_(hash) {
-    dsize = std::distance(begin_, end_);
-    data_.resize(dsize);
-    for (T it = begin_; it != end_; ++it) {
+  HashMap(T begin, T end, Hash hash = Hash()) : hash_function_(hash) {
+    dsize_ = std::distance(begin, end);
+    data_.resize(dsize_);
+    for (T it = begin; it != end; ++it) {
       insert({it->first, it->second});
     }
   }
@@ -40,10 +42,8 @@ class HashMap {
 
   ValueType &operator[](const KeyType &key) {
     iterator it = find(key);
-    if (it == pdata_.end()) {
-      insert({key, ValueType()});
-      it = find(key);
-    }
+    insert({key, ValueType()});
+    it = find(key);
     return it->second;
   }
 
@@ -57,18 +57,18 @@ class HashMap {
 
   void clear() {
     pdata_.clear();
-    pdsize = 0;
+    pdsize_ = 0;
     data_.clear();
-    data_.resize(16);
-    dsize = 16;
+    data_.resize(kMinSize);
+    dsize_ = kMinSize;
   }
 
   const size_t size() const {
-    return pdsize;
+    return pdsize_;
   }
 
   const bool empty() const {
-    return pdsize == 0;
+    return pdsize_ == 0;
   }
 
   const Hash hash_function() const {
@@ -76,65 +76,38 @@ class HashMap {
   }
 
   void insert(std::pair<KeyType, ValueType> element) {
-    int index = hash_function_(element.first) % data_.size();
-    auto it = data_[index].begin();
-    while (it != data_[index].end() && !((*it)->first == element.first)) {
-      ++it;
-    }
-    if (it == data_[index].end() || !((*it)->first == element.first)) {
+    auto p = find_iterator(element.first);
+
+    if (p.second == data_[p.first].end()) {
       iterator f = pdata_.insert(pdata_.end(),
                                  std::make_pair(element.first, element.second));
-      data_[index].insert(data_[index].end(), f);
-      ++pdsize;
-      if (dsize == pdsize) {
+      data_[p.first].insert(data_[p.first].end(), f);
+      ++pdsize_;
+      if (dsize_ == pdsize_) {
         rebuild();
       }
     }
   }
 
-  void insert_existing(iterator iter) {
-    int index = hash_function_(iter->first) % data_.size();
-    data_[index].insert(data_[index].end(), iter);
-    if (pdsize == dsize) {
-      rebuild();
-    }
-  }
-
   void erase(KeyType key) {
-    int index = hash_function_(key) % dsize;
-    auto it = data_[index].begin();
-    while (it != data_[index].end() && !((*it)->first == key)) {
-      ++it;
-    }
-    if (it != data_[index].end()) {
-      pdata_.erase(*it);
-      data_[index].erase(it);
-      --pdsize;
+    auto p = find_iterator(key);
+    if (p.second != data_[p.first].end()) {
+      pdata_.erase(*p.second);
+      data_[p.first].erase(p.second);
+      --pdsize_;
     }
   }
 
   iterator find(KeyType key) {
-    int index = hash_function_(key) % dsize;
-    auto it = data_[index].begin();
-    while (it != data_[index].end() && !((*it)->first == key)) {
-      ++it;
-    }
-    if (it != data_[index].end()) {
-      return *it;
+    auto p = find_iterator(key);
+    if (p.second != data_[p.first].end()) {
+      return *p.second;
     }
     return pdata_.end();
   }
 
   const_iterator find(KeyType key) const {
-    int index = hash_function_(key) % dsize;
-    auto it = data_[index].begin();
-    while (it != data_[index].end() && (*it)->first != key) {
-      ++it;
-    }
-    if (it != data_[index].end()) {
-      return *it;
-    }
-    return pdata_.end();
+    return const_cast<HashMap *>(this)->find(key);
   }
 
   iterator begin() {
@@ -157,7 +130,7 @@ class HashMap {
   void rebuild() {
     std::vector<std::list<iterator>> new_data_(data_.size() * 2),
         old_data_(data_);
-    dsize *= 2;
+    dsize_ *= 2;
     data_ = new_data_;
     for (auto it : old_data_) {
       for (auto it2 : it) {
@@ -166,9 +139,27 @@ class HashMap {
     }
   }
 
+  void insert_existing(iterator iter) {
+    int index = hash_function_(iter->first) % data_.size();
+    data_[index].insert(data_[index].end(), iter);
+    if (pdsize_ == dsize_) {
+      rebuild();
+    }
+  }
+
+  std::pair<int, list_iterator> find_iterator(KeyType key) {
+    int index = hash_function_(key) % dsize_;
+    list_iterator it =
+        std::find_if(data_[index].begin(), data_[index].end(),
+                     [&key](auto it) { return it->first == key; });
+    return std::make_pair(index, it);
+  }
+
   Hash hash_function_;
   std::vector<std::list<iterator>> data_;
   std::list<std::pair<const KeyType, ValueType>> pdata_;
-  size_t dsize;
-  size_t pdsize = 0;
+  size_t dsize_;
+  size_t pdsize_ = 0;
+
+  const size_t kMinSize = 16;
 };
